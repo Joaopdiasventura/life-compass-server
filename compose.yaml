@@ -6,6 +6,7 @@ services:
     environment:
       MONGODB_URI: mongodb://db:27017
       MONGODB_DATABASE: life_compass
+      CORS_ALLOWED_ORIGINS: '${CORS_ALLOWED_ORIGINS:-*}'
     ports:
       - 8080:8080
     depends_on:

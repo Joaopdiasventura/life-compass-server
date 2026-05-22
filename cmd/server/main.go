@@ -7,13 +7,15 @@ import (
 	"os"
 
 	"github.com/Joaopdiasventura/life-compass-server/internal/database"
+	"github.com/Joaopdiasventura/life-compass-server/internal/middleware"
+	financeController "github.com/Joaopdiasventura/life-compass-server/internal/finance/controller"
 	financeRepository "github.com/Joaopdiasventura/life-compass-server/internal/finance/repository"
 	financeService "github.com/Joaopdiasventura/life-compass-server/internal/finance/service"
-	financeController "github.com/Joaopdiasventura/life-compass-server/internal/finance/controller"
 )
 
 func main() {
 	uri := os.Getenv("MONGODB_URI")
+	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
 	databaseName := os.Getenv("MONGODB_DATABASE")
 	if databaseName == "" {
 		databaseName = "life_compass"
@@ -36,7 +38,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: mux,
+		Handler: middleware.CORS(mux, allowedOrigins),
 	}
 
 	log.Println("Server is running on :8080")
