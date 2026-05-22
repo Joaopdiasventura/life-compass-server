@@ -1,7 +1,6 @@
 package database
 
 import (
-	"context"
 	"log"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -18,12 +17,6 @@ func NewClient(uri string) *mongo.Client {
 	if err != nil {
 		panic(err)
 	}
-
-	defer func() {
-		if err := client.Disconnect(context.TODO()); err != nil {
-			panic(err)
-		}
-	}()
 
 	return client
 }

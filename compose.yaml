@@ -3,6 +3,9 @@ services:
     build:
       context: .
       target: final
+    environment:
+      MONGODB_URI: mongodb://db:27017
+      MONGODB_DATABASE: life_compass
     ports:
       - 8080:8080
     depends_on:
