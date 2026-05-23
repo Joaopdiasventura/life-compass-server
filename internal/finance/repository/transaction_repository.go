@@ -21,6 +21,8 @@ type TransactionFilter struct {
 type TransactionRepository interface {
 	Create(ctx context.Context, transaction model.Transaction) (model.Transaction, error)
 	Find(ctx context.Context, filter TransactionFilter) ([]model.Transaction, error)
+	FindByID(ctx context.Context, id bson.ObjectID) (model.Transaction, error)
+	Update(ctx context.Context, transaction model.Transaction) (model.Transaction, error)
 }
 
 type MongoTransactionRepository struct {
@@ -87,4 +89,23 @@ func (repository *MongoTransactionRepository) Find(ctx context.Context, filter T
 	}
 
 	return transactions, nil
+}
+
+func (repository *MongoTransactionRepository) FindByID(ctx context.Context, id bson.ObjectID) (model.Transaction, error) {
+	var transaction model.Transaction
+	err := repository.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&transaction)
+	if err != nil {
+		return model.Transaction{}, err
+	}
+
+	return transaction, nil
+}
+
+func (repository *MongoTransactionRepository) Update(ctx context.Context, transaction model.Transaction) (model.Transaction, error) {
+	_, err := repository.collection.ReplaceOne(ctx, bson.M{"_id": transaction.ID}, transaction)
+	if err != nil {
+		return model.Transaction{}, err
+	}
+
+	return transaction, nil
 }

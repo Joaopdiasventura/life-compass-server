@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	corsAllowedMethods = "GET, POST, OPTIONS"
+	corsAllowedMethods = "GET, POST, PUT, PATCH, OPTIONS"
 	corsAllowedHeaders = "Content-Type"
 )
 

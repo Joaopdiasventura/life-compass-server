@@ -7,10 +7,10 @@ import (
 	"os"
 
 	"github.com/Joaopdiasventura/life-compass-server/internal/database"
+	financeControllers "github.com/Joaopdiasventura/life-compass-server/internal/finance/controller"
+	financeRepositories "github.com/Joaopdiasventura/life-compass-server/internal/finance/repository"
+	financeServices "github.com/Joaopdiasventura/life-compass-server/internal/finance/service"
 	"github.com/Joaopdiasventura/life-compass-server/internal/middleware"
-	financeController "github.com/Joaopdiasventura/life-compass-server/internal/finance/controller"
-	financeRepository "github.com/Joaopdiasventura/life-compass-server/internal/finance/repository"
-	financeService "github.com/Joaopdiasventura/life-compass-server/internal/finance/service"
 )
 
 func main() {
@@ -29,12 +29,16 @@ func main() {
 	}()
 
 	mongoDatabase := client.Database(databaseName)
-	transactionRepository := financeRepository.NewMongoTransactionRepository(mongoDatabase)
-	transactionService := financeService.NewTransactionService(transactionRepository)
-	transactionController := financeController.NewTransactionController(transactionService)
+	transactionRepository := financeRepositories.NewMongoTransactionRepository(mongoDatabase)
+	goalRepository := financeRepositories.NewMongoGoalRepository(mongoDatabase)
+	financeService := financeServices.NewFinanceService(financeServices.FinanceServiceDependencies{
+		TransactionRepository: transactionRepository,
+		GoalRepository:        goalRepository,
+	})
+	financeController := financeControllers.NewFinanceController(financeService)
 
 	mux := http.NewServeMux()
-	transactionController.RegisterRoutes(mux)
+	financeController.RegisterRoutes(mux)
 
 	server := &http.Server{
 		Addr:    ":8080",

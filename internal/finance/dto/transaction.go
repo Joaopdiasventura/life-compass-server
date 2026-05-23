@@ -17,6 +17,14 @@ type CreateTransactionRequest struct {
 	TransactionDate string `json:"transactionDate"`
 }
 
+type UpdateTransactionRequest struct {
+	Description     string `json:"description"`
+	Amount          int64  `json:"amount"`
+	Type            string `json:"type"`
+	Category        string `json:"category"`
+	TransactionDate string `json:"transactionDate"`
+}
+
 type TransactionResponse struct {
 	ID              string `json:"id"`
 	Description     string `json:"description"`

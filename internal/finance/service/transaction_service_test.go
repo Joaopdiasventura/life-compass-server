@@ -10,6 +10,7 @@ import (
 	"github.com/Joaopdiasventura/life-compass-server/internal/finance/model"
 	"github.com/Joaopdiasventura/life-compass-server/internal/finance/repository"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type fakeTransactionRepository struct {
@@ -58,6 +59,39 @@ func (fake *fakeTransactionRepository) Find(ctx context.Context, filter reposito
 	return transactions, nil
 }
 
+func (fake *fakeTransactionRepository) FindByID(ctx context.Context, id bson.ObjectID) (model.Transaction, error) {
+	for _, transaction := range fake.transactions {
+		if transaction.ID == id {
+			return transaction, nil
+		}
+	}
+
+	return model.Transaction{}, mongo.ErrNoDocuments
+}
+
+func (fake *fakeTransactionRepository) Update(ctx context.Context, transaction model.Transaction) (model.Transaction, error) {
+	for index, currentTransaction := range fake.transactions {
+		if currentTransaction.ID == transaction.ID {
+			fake.transactions[index] = transaction
+			return transaction, nil
+		}
+	}
+
+	return model.Transaction{}, mongo.ErrNoDocuments
+}
+
+func newTestFinanceService(transactionRepository repository.TransactionRepository, goalRepositories ...repository.GoalRepository) *FinanceService {
+	var goalRepository repository.GoalRepository
+	if len(goalRepositories) > 0 {
+		goalRepository = goalRepositories[0]
+	}
+
+	return NewFinanceService(FinanceServiceDependencies{
+		TransactionRepository: transactionRepository,
+		GoalRepository:        goalRepository,
+	})
+}
+
 func TestCreateTransactionAcceptsValidIncomeAndExpense(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -71,7 +105,7 @@ func TestCreateTransactionAcceptsValidIncomeAndExpense(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &fakeTransactionRepository{}
-			service := NewTransactionService(repository)
+			service := newTestFinanceService(repository)
 
 			response, err := service.CreateTransaction(context.Background(), dto.CreateTransactionRequest{
 				Description:     "Monthly transaction",
@@ -124,7 +158,6 @@ func TestCreateTransactionValidation(t *testing.T) {
 		name   string
 		change func(*dto.CreateTransactionRequest)
 	}{
-		{name: "missing description", change: func(request *dto.CreateTransactionRequest) { request.Description = " " }},
 		{name: "missing category", change: func(request *dto.CreateTransactionRequest) { request.Category = " " }},
 		{name: "zero amount", change: func(request *dto.CreateTransactionRequest) { request.Amount = 0 }},
 		{name: "negative amount", change: func(request *dto.CreateTransactionRequest) { request.Amount = -1 }},
@@ -140,7 +173,7 @@ func TestCreateTransactionValidation(t *testing.T) {
 			test.change(&request)
 
 			repository := &fakeTransactionRepository{}
-			service := NewTransactionService(repository)
+			service := newTestFinanceService(repository)
 
 			_, err := service.CreateTransaction(context.Background(), request)
 			if err == nil {
@@ -156,9 +189,32 @@ func TestCreateTransactionValidation(t *testing.T) {
 	}
 }
 
+func TestCreateTransactionAllowsEmptyDescription(t *testing.T) {
+	repository := &fakeTransactionRepository{}
+	service := newTestFinanceService(repository)
+
+	response, err := service.CreateTransaction(context.Background(), dto.CreateTransactionRequest{
+		Description:     " ",
+		Amount:          1000,
+		Type:            model.TransactionTypeExpense,
+		Category:        "Alimentação",
+		TransactionDate: "2026-05-22",
+	})
+	if err != nil {
+		t.Fatalf("CreateTransaction returned error: %v", err)
+	}
+
+	if response.Description != "" {
+		t.Fatalf("expected empty description, got %q", response.Description)
+	}
+	if len(repository.created) != 1 || repository.created[0].Description != "" {
+		t.Fatalf("expected saved transaction with empty description")
+	}
+}
+
 func TestListTransactionsRejectsInvalidTypeFilters(t *testing.T) {
 	repository := &fakeTransactionRepository{}
-	service := NewTransactionService(repository)
+	service := newTestFinanceService(repository)
 
 	if _, err := service.ListTransactions(context.Background(), "transfer"); !IsValidationError(err) {
 		t.Fatalf("expected validation error for invalid list type, got %v", err)
@@ -166,6 +222,49 @@ func TestListTransactionsRejectsInvalidTypeFilters(t *testing.T) {
 
 	if _, err := service.ListTransactionsByPeriod(context.Background(), PeriodDaily, "2026-05-22", "transfer"); !IsValidationError(err) {
 		t.Fatalf("expected validation error for invalid period list type, got %v", err)
+	}
+}
+
+func TestGetAndUpdateTransaction(t *testing.T) {
+	transactionID := bson.NewObjectID()
+	repository := &fakeTransactionRepository{
+		transactions: []model.Transaction{
+			{
+				ID:              transactionID,
+				Description:     "Café",
+				Amount:          2590,
+				Type:            model.TransactionTypeExpense,
+				Category:        "Alimentação",
+				TransactionDate: mustDate("2026-05-22"),
+				CreatedAt:       mustDate("2026-05-22"),
+			},
+		},
+	}
+	service := newTestFinanceService(repository)
+
+	transaction, err := service.GetTransaction(context.Background(), transactionID.Hex())
+	if err != nil {
+		t.Fatalf("GetTransaction returned error: %v", err)
+	}
+	if transaction.Description != "Café" {
+		t.Fatalf("expected transaction to be loaded, got %+v", transaction)
+	}
+
+	updatedTransaction, err := service.UpdateTransaction(context.Background(), transactionID.Hex(), dto.UpdateTransactionRequest{
+		Description:     "Almoço",
+		Amount:          4290,
+		Type:            model.TransactionTypeExpense,
+		Category:        "Alimentação",
+		TransactionDate: "2026-05-23",
+	})
+	if err != nil {
+		t.Fatalf("UpdateTransaction returned error: %v", err)
+	}
+	if updatedTransaction.Description != "Almoço" || updatedTransaction.Amount != 4290 {
+		t.Fatalf("expected updated transaction, got %+v", updatedTransaction)
+	}
+	if repository.transactions[0].CreatedAt.IsZero() {
+		t.Fatalf("expected createdAt to be preserved")
 	}
 }
 
@@ -185,7 +284,7 @@ func TestListTransactionsByPeriodBuildsDateRanges(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			repository := &fakeTransactionRepository{}
-			service := NewTransactionService(repository)
+			service := newTestFinanceService(repository)
 
 			_, err := service.ListTransactionsByPeriod(context.Background(), test.period, "2026-05-22", model.TransactionTypeIncome)
 			if err != nil {
@@ -210,7 +309,7 @@ func TestGetFinancialSummaryCalculatesTotalsForPeriod(t *testing.T) {
 			{Amount: 9999, Type: model.TransactionTypeExpense, TransactionDate: mustDate("2026-06-01")},
 		},
 	}
-	service := NewTransactionService(repository)
+	service := newTestFinanceService(repository)
 
 	summary, err := service.GetFinancialSummary(context.Background(), PeriodMonthly, "2026-05-22")
 	if err != nil {
@@ -248,7 +347,7 @@ func TestGetTotalBalanceCalculatesConsolidatedBalance(t *testing.T) {
 			{Amount: 50, Type: model.TransactionTypeExpense, TransactionDate: mustDate("2026-05-22")},
 		},
 	}
-	service := NewTransactionService(repository)
+	service := newTestFinanceService(repository)
 
 	balance, err := service.GetTotalBalance(context.Background())
 	if err != nil {
@@ -263,7 +362,7 @@ func TestGetTotalBalanceCalculatesConsolidatedBalance(t *testing.T) {
 func TestRepositoryErrorsAreReturned(t *testing.T) {
 	expectedErr := errors.New("repository error")
 	repository := &fakeTransactionRepository{findErr: expectedErr}
-	service := NewTransactionService(repository)
+	service := newTestFinanceService(repository)
 
 	_, err := service.GetTotalBalance(context.Background())
 	if !errors.Is(err, expectedErr) {
